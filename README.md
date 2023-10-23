@@ -11,4 +11,7 @@ because it seemed an interesting project.
 The design uses an Arduino Nano as its main processor. The firmware requires the MIDI
 library to be installed.
 
-The firmware and hardware designs are (C) Robin Terry 2023. 
+The firmware and hardware designs are (C) Robin Terry 2023.
+
+Please consult the Word document for more information, plus the circuit diagram.
+ 
