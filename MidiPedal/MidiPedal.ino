@@ -108,7 +108,7 @@ void sendMaxVolume()
 #endif
 }
 
-void sendMaxSost()
+void sendSostOff()
 {
 #ifdef DEBUG_SOST
   Serial.println("Sending sostenuto pedal off");
@@ -127,7 +127,7 @@ void setup()
   /* Send maximum volume to start with */
   sendMaxVolume();
   /* Send sostenuto pedal off to start with */
-  sendMaxSost();
+  sendSostOff();
 #endif
 }
 
