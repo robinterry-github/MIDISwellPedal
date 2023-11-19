@@ -108,6 +108,12 @@ void sendMaxVolume()
 #endif
 }
 
+void sendMaxSost()
+{
+  for (int i = 1; i <= MAX_CHANNEL; i++)
+     MIDI.sendControlChange(CC_SOST_CONTROL, MIN_MIDI_CC, i);
+}
+
 void setup()
 {
 #ifdef DEBUG
@@ -116,6 +122,8 @@ void setup()
   MIDI.begin();
   /* Send maximum volume to start with */
   sendMaxVolume();
+  /* Send sostenuto pedal off to start with */
+  sendMaxSost();
 #endif
 }
 
