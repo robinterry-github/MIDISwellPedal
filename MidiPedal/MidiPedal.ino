@@ -110,8 +110,12 @@ void sendMaxVolume()
 
 void sendMaxSost()
 {
+#ifdef DEBUG_SOST
+  Serial.println("Sending sostenuto pedal off");
+#else
   for (int i = 1; i <= MAX_CHANNEL; i++)
      MIDI.sendControlChange(CC_SOST_CONTROL, MIN_MIDI_CC, i);
+#endif
 }
 
 void setup()
