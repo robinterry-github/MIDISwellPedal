@@ -1,24 +1,28 @@
 /* MIDI Pedal controller
  * developed by Robin Terry (C) 2023
  * 
- * Latest change: November 18 2023
+ * Latest change: November 26 2023
  */
 #include <MIDI.h>
+
+#define ENABLE_EXPR_PEDAL
+#define ENABLE_SOST_PEDAL
+
 //#define DEBUG_EXPR
 //#define DEBUG_SOST
 //#define DEBUG_A2D_A0
 //#define DEBUG_A2D_A1
+//#define PLAY_CHORDS_TEST
 
 #if defined(DEBUG_EXPR) || defined(DEBUG_SOST) || defined(DEBUG_A2D_A0) || defined(DEBUG_A2D_A1)
 #define DEBUG
 #endif
 
-//#define PLAY_CHORDS_TEST
 //#define SYSEX_VOLUME_MESSAGE
 #define EXPR_PEDAL      A0
 #define SOST_PEDAL      A1
 #define MARGIN_LOW      0x04
-#define MARGIN_HIGH     0x40
+#define MARGIN_HIGH     0x200
 #define BAUD_RATE       115200
 #define MAX_ANALOGUE    0x3FF
 #define LAST_VAL        (MAX_ANALOGUE*2)
@@ -28,7 +32,7 @@
 #define MAX_CHANNEL     16
 #define MIN_VOL         0x010
 #define MAX_VOL         0x3F0
-#define CC_VOL_CONTROL  11
+#define CC_EXPR_CONTROL 11
 #define CC_SOST_CONTROL 66
 #define UP_THRESHOLD    0x50
 #define DOWN_THRESHOLD  0x30
@@ -42,6 +46,7 @@ class pedal {
     int curVal, delta, lastOnOff;
     bool present;
     pedal() { curVal = 0, lastVal = LAST_VAL, present = false, lastOnOff = MIN_MIDI_CC; }
+    void readPedal(int channel) { curVal = analogRead(channel); }
     void saveVal() { lastVal = curVal; }
     void getDelta() { delta = abs(curVal-lastVal); }
     int mapRange() { return map(curVal, 0, MAX_ANALOGUE, MIN_MIDI_CC, MAX_MIDI_CC); }
@@ -80,7 +85,7 @@ class pedal {
 };
 
 struct pedal expr, sost;
-int controller;
+byte controller[2];
 bool pedalPresent = false;
 bool forceProcess = false;
 
@@ -91,7 +96,7 @@ byte masterVolMsg[] = {
 };
 #endif
 
-void sendMaxVolume()
+void sendMaxExpr()
 {
 #ifdef DEBUG_EXPR
   Serial.println("Sending maximum volume");
@@ -103,7 +108,7 @@ void sendMaxVolume()
   MIDI.sendSysEx(8, masterVolMsg, true);
 #endif
   for (int i = 1; i <= MAX_CHANNEL; i++)
-      MIDI.sendControlChange(CC_VOL_CONTROL, MAX_MIDI_CC, i);
+      MIDI.sendControlChange(CC_EXPR_CONTROL, MAX_MIDI_CC, i);
 #endif
 #endif
 }
@@ -113,8 +118,10 @@ void sendSostOff()
 #ifdef DEBUG_SOST
   Serial.println("Sending sostenuto pedal off");
 #else
+#ifndef DEBUG
   for (int i = 1; i <= MAX_CHANNEL; i++)
      MIDI.sendControlChange(CC_SOST_CONTROL, MIN_MIDI_CC, i);
+#endif
 #endif
 }
 
@@ -124,8 +131,8 @@ void setup()
   Serial.begin(BAUD_RATE);
 #else
   MIDI.begin();
-  /* Send maximum volume to start with */
-  sendMaxVolume();
+  /* Send maximum expression pedal to start with */
+  sendMaxExpr();
   /* Send sostenuto pedal off to start with */
   sendSostOff();
 #endif
@@ -138,14 +145,15 @@ void loop()
   Serial.println("MIDI pedal unit (debug)");
 #endif
   for (;;) {
+#ifdef ENABLE_EXPR_PEDAL
     /* Deal with the expression pedal here */
-    expr.curVal = analogRead(EXPR_PEDAL);
+    expr.readPedal(EXPR_PEDAL);
 
     if (expr.curVal == 0) {
       if (expr.present) {
         expr.present = false;
         /* When pedal removed, send maximum volume */
-        sendMaxVolume();
+        sendMaxExpr();
 #ifdef DEBUG_EXPR
         Serial.println("Pedal removed");
 #endif
@@ -156,7 +164,7 @@ void loop()
       if (expr.curVal <= MIN_VOL)
         expr.curVal = MIN_VOL;
       else if (expr.curVal >= MAX_VOL)
-        expr.curVal = MAX_ANALOGUE;
+        expr.curVal = MAX_VOL;
 
       if (!expr.present) {
 #ifdef DEBUG_EXPR
@@ -172,7 +180,7 @@ void loop()
 
     if (expr.present) {
       expr.getDelta();
-      controller = expr.mapRange();
+      controller[0] = (byte) expr.mapRange();
 #ifndef DEBUG
 #ifdef PLAY_CHORDS_TEST
       MIDI.sendNoteOn(30+(expr.curVal>>4), MAX_MIDI_CC, 1);
@@ -184,29 +192,28 @@ void loop()
       MIDI.sendNoteOn(37+(expr.curVal>>4), 0, 3);
       delay(20);
 #endif
-#endif
+#endif // DEBUG
       /* The dampAnalog() function damps the analogue reading to make sure it
        * doesn't change too quickly - this can happen when the pedal is removed */
       if (expr.dampAnalog() || forceProcess) {
         forceProcess = false;
-#ifdef DEBUG_EXPR
+#ifdef DEBUG_EXPR2
         expr.print("expr");
 #endif
 #ifdef DEBUG_A2D_A0
         Serial.print("curVal 0x");
         Serial.print(expr.curVal, HEX);
         Serial.print(" delta 0x");
-        Serial.print(expr.delta, HEX);
-        Serial.print(" volume ");
-        Serial.println(volume);
+        Serial.println(expr.delta, HEX);
 #endif
+
 #ifdef SYSEX_VOLUME_MESSAGE
-        controller = map(expr.curVal, 0, MAX_ANALOGUE, 0, 0x3FFF);
+        controller[0] = map(expr.curVal, 0, MAX_ANALOGUE, 0, 0x3FFF);
 #ifdef DEBUG_EXPR
         Serial.println(volume, HEX);
 #endif
-        masterVolMsg[5] = (byte) (controller & 0x7F);
-        masterVolMsg[6] = (byte) ((controller >> 7) & 0x7F);
+        masterVolMsg[5] = (byte) (controller[0] & 0x7F);
+        masterVolMsg[6] = (byte) ((controller[0] >> 7) & 0x7F);
 #ifdef DEBUG_EXPR
         for (int j = 0; j < 8; j++) {
           Serial.print(masterVolMsg[j], HEX);
@@ -220,26 +227,25 @@ void loop()
 #endif
 #else // SYSEX_VOLUME_MESSAGE
 #ifdef DEBUG_EXPR
-        Serial.println("=====");
-        Serial.print("Controller ");
-        Serial.print(CC_VOL_CONTROL);
-        Serial.print(" level 0x");
-        Serial.println(controller, HEX);
-        Serial.println("=====");
+        Serial.print("Expr controller ");
+        Serial.print(CC_EXPR_CONTROL);
+        Serial.print(" value 0x");
+        Serial.println(controller[0], HEX);
 #endif
-        for (int i = 1; i <= MAX_CHANNEL; i++) {
 #ifndef DEBUG
-          MIDI.sendControlChange(CC_VOL_CONTROL, controller, i);
+        for (int i = 1; i <= MAX_CHANNEL; i++)
+          MIDI.sendControlChange(CC_EXPR_CONTROL, controller[0], i);
 #endif
-        }
 #endif // SYSEX_VOLUME_MESSAGE
         expr.saveVal();
-        delay(2);
       }
     }
+    delay(2);
+#endif // ENABLE_EXPR_PEDAL
 
+#ifdef ENABLE_SOST_PEDAL
     /* Deal with the sostenuto pedal here */
-    sost.curVal = analogRead(SOST_PEDAL);
+    sost.readPedal(SOST_PEDAL);
     sost.getDelta();
     sost.invertValue();
 #ifdef DEBUG_A2D_A1
@@ -253,22 +259,20 @@ void loop()
        sost.print("sost");
 #endif
        /* This is an on/off controller with hysteresis */
-       controller = sost.onOff();
+       controller[1] = (byte) sost.onOff();
 #ifdef DEBUG_SOST
-       Serial.println("=====");
-       Serial.print("Controller ");
+       Serial.print("Sost controller ");
        Serial.print(CC_SOST_CONTROL);
-       Serial.print(" level 0x");
-       Serial.println(controller, HEX);
-       Serial.println("=====");
+       Serial.print(" value 0x");
+       Serial.println(controller[1], HEX);
 #endif
-       for (int i = 1; i <= MAX_CHANNEL; i++) {
 #ifndef DEBUG
-          MIDI.sendControlChange(CC_SOST_CONTROL, controller, i);
+       for (int i = 1; i <= MAX_CHANNEL; i++)
+          MIDI.sendControlChange(CC_SOST_CONTROL, controller[1], i);
 #endif
-      }
       sost.saveVal();
-      delay(2);
     }
+    delay(2);
+#endif // ENABLE_SOST_PEDAL
   }
 }
